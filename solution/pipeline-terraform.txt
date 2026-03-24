@@ -1,0 +1,97 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION      = 'ap-south-1'
+        CLUSTER_NAME    = 'demo-cluster'
+        NODE_KEY        = 'ap-linux-kp'
+        DOCKERHUB_CREDS = 'dockerhub'
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git 'https://github.com/jsachdev07/tf-eks-ci-cd.git'
+            }
+        }
+
+        stage('Compile & Test') {
+            steps {
+                sh 'mvn clean compile test package'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh '''
+                    cp target/ABCtechnologies-1.0.war abc_tech.war
+                    docker build -t abc_tech:$BUILD_NUMBER .
+                    docker tag abc_tech:$BUILD_NUMBER jsachdev07/abc_tech:$BUILD_NUMBER
+                '''
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                withDockerRegistry([credentialsId: "${DOCKERHUB_CREDS}", url: ""]) {
+                    sh 'docker push jsachdev07/abc_tech:$BUILD_NUMBER'
+                }
+            }
+        }
+
+        stage('Terraform Init & Apply') {
+            steps {
+                withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
+                    dir('terraform') {
+                        sh '''
+                            terraform init
+                            terraform apply -auto-approve -var="node_key=${NODE_KEY}"
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Verify Cluster Creation') {
+            steps {
+                withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
+                    sh '''
+                        aws eks list-clusters
+                        aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} --query "cluster.status"
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
+                    sh '''
+                        # Configure kubectl
+                        aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
+
+                        # Replace $BUILD_NUMBER dynamically in deployment.yaml
+                        envsubst < k8s/deployment.yaml > k8s/deployment-final.yaml
+
+                        # Deploy application
+                        kubectl apply -f k8s/deployment-final.yaml
+                        kubectl apply -f k8s/service.yaml
+
+                        # Verify deployment
+                        kubectl get pods -o wide
+                        kubectl get svc -o wide
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Application deployed successfully to EKS cluster ${CLUSTER_NAME} in ${AWS_REGION}"
+        }
+        failure {
+            echo "Deployment failed. Check logs for details."
+        }
+    }
+}

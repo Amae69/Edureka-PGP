@@ -1,0 +1,179 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION      = 'ap-south-1'
+        CLUSTER_NAME    = 'demo-cluster'
+        NODE_KEY        = 'ap-linux-kp'
+        DOCKERHUB_CREDS = 'dockerhub'
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git 'https://github.com/jsachdev07/tf-eks-ci-cd.git'
+            }
+        }
+
+        stage('Compile & Test') {
+            steps {
+                sh 'mvn clean compile test package'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh '''
+                    cp target/ABCtechnologies-1.0.war abc_tech.war
+                    docker build -t abc_tech:$BUILD_NUMBER .
+                    docker tag abc_tech:$BUILD_NUMBER jsachdev07/abc_tech:$BUILD_NUMBER
+                '''
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                withDockerRegistry([credentialsId: "${DOCKERHUB_CREDS}", url: ""]) {
+                    sh 'docker push jsachdev07/abc_tech:$BUILD_NUMBER'
+                }
+            }
+        }
+
+        stage('Terraform Init & Apply') {
+            steps {
+                withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
+                    dir('terraform') {
+                        sh '''
+                            terraform init
+                            terraform apply -auto-approve -var="node_key=${NODE_KEY}"
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Verify Cluster Creation') {
+            steps {
+                withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
+                    sh '''
+                        aws eks list-clusters
+                        aws eks describe-cluster --name ${CLUSTER_NAME} --region ${AWS_REGION} --query "cluster.status"
+                    '''
+                }
+            }
+        }
+
+stage('Deploy ArgoCD') {
+    steps {
+        withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
+            sh '''
+                # Configure kubectl for EKS
+                aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
+
+                # Check if ArgoCD namespace exists
+                if ! kubectl get ns argocd >/dev/null 2>&1; then
+                    echo "Installing ArgoCD..."
+                    kubectl create namespace argocd
+                    kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+                    echo "Waiting for ArgoCD to be ready..."
+                    kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=600s
+                else
+                    echo "ArgoCD already installed. Skipping..."
+                fi
+            '''
+        }
+    }
+}
+
+
+        stage('Update Deployment YAML & Push to GitHub') {
+            environment {
+                GIT_REPO_URL = 'https://github.com/jsachdev07/tf-eks-ci-cd.git'
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'github-creds', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
+                    sh '''
+                        echo "Generating new deployment for build ${BUILD_NUMBER}..."
+
+                        # Generate runtime manifest from template
+                        envsubst < k8s/deployment-template.yaml > k8s-argo/deployment.yaml
+
+                        # Configure Git identity
+                        git config --global user.email "jenkins@ci.local"
+                        git config --global user.name "Jenkins CI"
+
+                        # Auth & commit
+                        git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/jsachdev07/tf-eks-ci-cd.git
+
+                        git add k8s-argo/deployment.yaml
+                        git commit -m "Update ArgoCD manifest for build ${BUILD_NUMBER}" || echo "No changes to commit"
+                        git push origin master || echo "No changes to push"
+
+                        echo "ArgoCD manifest updated for build ${BUILD_NUMBER}"
+                    '''
+                }
+            }
+        }
+
+
+
+
+stage('Create ArgoCD Application (One-time)') {
+    steps {
+        withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
+            sh '''
+                # Configure kubectl for EKS
+                aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
+
+                echo "🔍 Checking if ArgoCD Application already exists..."
+                if ! kubectl get application abc-tech -n argocd >/dev/null 2>&1; then
+                    echo "🚀 Creating ArgoCD Application for abc-tech..."
+
+                    cat <<EOF | kubectl apply -f -
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: abc-tech
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jsachdev07/tf-eks-ci-cd.git
+    targetRevision: master
+    path: k8s-argo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+EOF
+
+                    echo "ArgoCD Application created successfully."
+                else
+                    echo "ArgoCD Application already exists — skipping creation."
+                fi
+
+                echo "Fetching current ArgoCD Application status..."
+                kubectl get application abc-tech -n argocd -o wide || true
+		
+                
+            '''
+        }
+    }
+}
+
+
+}
+
+    post {
+        success {
+            echo "Application deployed successfully to EKS cluster ${CLUSTER_NAME} in ${AWS_REGION}"
+        }
+        failure {
+            echo "Deployment failed. Check logs for details."
+        }
+    }
+}
