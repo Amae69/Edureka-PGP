@@ -1,39 +1,23 @@
-variable "node_key" {
-  description = "EC2 keypair name for SSH access"
-  default     = "ap-linux-kp"
+variable "aws_region" {
+  description = "AWS region for resources"
+  type        = string
+  default     = "eu-west-2"
 }
 
-variable "region" {
-  description = "AWS region"
-  default     = "ap-south-1"
+variable "ami_id" {
+  description = "AMI ID for the EC2 instances"
+  type        = string
+  default     = "ami-05d2d839d4f73aafb" # Check AWS region for accurate Ubuntu AMI
 }
 
-variable "cluster_name" {
-  description = "Name of the EKS cluster"
-  default     = "demo-cluster"
+variable "instance_type" {
+  description = "EC2 instance type"
+  type        = string
+  default     = "t3.micro"
 }
 
-variable "node_group_name" {
-  description = "Node group name"
-  default     = "eks-nodes"
-}
-
-variable "node_instance_type" {
-  description = "EC2 instance type for nodes"
-  default     = "t3.medium"
-}
-
-variable "desired_capacity" {
-  description = "Number of worker nodes"
-  default     = 1
-}
-
-variable "max_size" {
-  description = "Max nodes in the node group"
-  default     = 3
-}
-
-variable "min_size" {
-  description = "Min nodes in the node group"
-  default     = 1
+variable "key_name" {
+  description = "Key pair name for SSH access"
+  type        = string
+  default     = "ec2-key"
 }

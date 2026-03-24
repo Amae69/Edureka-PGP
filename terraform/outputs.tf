@@ -1,11 +1,14 @@
-output "cluster_name" {
-  value = aws_eks_cluster.eks.name
+output "jenkins_public_ip" {
+  description = "Public IP of the Jenkins Server"
+  value       = aws_instance.jenkins_server.public_ip
 }
 
-output "cluster_endpoint" {
-  value = aws_eks_cluster.eks.endpoint
+output "app_public_ip" {
+  description = "Public IP of the App Server"
+  value       = aws_instance.app_server.public_ip
 }
 
-output "cluster_certificate" {
-  value = aws_eks_cluster.eks.certificate_authority[0].data
+output "monitoring_public_ip" {
+  description = "Public IP of the Monitoring Server"
+  value       = aws_instance.monitoring_server.public_ip
 }

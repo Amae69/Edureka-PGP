@@ -1,0 +1,103 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_CREDS = credentials('dockerhub')
+        AWS_CREDS = credentials('aws-creds')
+        APP_URL = "http://localhost:8080" // Will be overridden dynamically
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Compile, Test & Package') {
+            steps {
+                sh 'mvn clean compile test package'
+            }
+        }
+
+        stage('Dependency Check (SCA)') {
+            steps {
+                sh '''
+                docker run --rm \
+                -v $(pwd):/src \
+                -v $(pwd)/reports:/report \
+                owasp/dependency-check \
+                --scan /src \
+                --format HTML \
+                --out /report
+                '''
+            }
+        }
+
+        stage('Checkov Scan') {
+            steps {
+                sh 'checkov -d terraform/'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh '''
+                    cp target/ABCtechnologies*.war abc_tech.war || cp target/*.war abc_tech.war
+                    docker build -t jsachdev07/abc_tech:${BUILD_NUMBER} .
+                '''
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                sh '''
+                    echo $DOCKER_CREDS_PSW | docker login -u $DOCKER_CREDS_USR --password-stdin
+                    docker push jsachdev07/abc_tech:${BUILD_NUMBER}
+                '''
+            }
+        }
+
+        stage('Terraform Init & Apply') {
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-creds',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    sh '''
+                    cd terraform
+                    terraform init
+                    terraform apply -auto-approve
+                    '''
+                }
+            }
+        }
+
+        stage('Get Public IP') {
+            steps {
+                script {
+                    def ip = sh(
+                        script: "cd terraform && terraform output -raw app_public_ip",
+                        returnStdout: true
+                    ).trim()
+
+                    env.APP_URL = "http://${ip}:8080"
+                    echo "App URL is ${env.APP_URL}"
+                }
+            }
+        }
+
+        stage('OWASP ZAP (DAST)') {
+            steps {
+                sh """
+                docker run -v \$(pwd):/zap/wrk/:rw -t owasp/zap2docker-stable \
+                zap-baseline.py \
+                -t ${APP_URL} \
+                -r zap-report.html || true
+                """
+            }
+        }
+    }
+}

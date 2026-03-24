@@ -1,0 +1,77 @@
+---
+- name: Setup Jenkins Server
+  hosts: jenkins
+  become: yes
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install dependencies
+      apt:
+        name:
+          - fontconfig
+          - openjdk-21-jre
+          - maven
+          - unzip
+          - wget
+          - python3
+          - python3-pip
+          - docker.io
+        state: present
+
+    - name: Start Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Setup Jenkins Key
+      shell: |
+        wget -q -O - https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key | sudo apt-key add -
+      ignore_errors: yes
+
+    - name: Setup Jenkins Key Alternative
+      shell: |
+        sudo wget -O /etc/apt/keyrings/jenkins-keyring.asc https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+        echo "deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/" | sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
+    
+    - name: Update apt cache again
+      apt:
+        update_cache: yes
+
+    - name: Install Jenkins
+      apt:
+        name: jenkins
+        state: present
+
+    - name: Start Jenkins
+      systemd:
+        name: jenkins
+        state: started
+        enabled: yes
+
+    - name: Add Jenkins user to Docker group
+      user:
+        name: jenkins
+        groups: docker
+        append: yes
+
+    - name: Install Terraform
+      shell: |
+        wget -q https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip
+        unzip -o terraform_1.5.7_linux_amd64.zip
+        mv terraform /usr/local/bin/
+        rm terraform_1.5.7_linux_amd64.zip
+      args:
+        creates: /usr/local/bin/terraform
+
+    - name: Install Checkov
+      pip:
+        name: checkov
+        executable: pip3
+
+    - name: Install Ansible
+      apt:
+        name: ansible
+        state: present
