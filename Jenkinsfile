@@ -127,11 +127,12 @@ pipeline {
         stage('OWASP ZAP (DAST)') {
             steps {
                 sh """
-                docker run -v \$(pwd):/zap/wrk/:rw -t owasp/zap2docker-stable \
+                docker run --rm -v \$(pwd):/zap/wrk/:rw -t zaproxy/zap-stable \
                 zap-baseline.py \
-                -t ${APP_URL} \
+                -t ${env.APP_URL} \
                 -r zap-report.html || true
                 """
+                archiveArtifacts artifacts: 'zap-report.html', allowEmptyArchive: true
             }
         }
     }
