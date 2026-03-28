@@ -23,6 +23,8 @@ pipeline {
         stage('Dependency Check (SCA)') {
             steps {
                 sh '''
+                mkdir -p reports
+                chmod 777 reports
                 docker run --rm \
                 -v $(pwd):/src \
                 -v $(pwd)/reports:/report \
