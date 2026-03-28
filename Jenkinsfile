@@ -118,7 +118,7 @@ pipeline {
                     // Run Ansible Playbook for App Setup
                     withCredentials([sshUserPrivateKey(credentialsId: 'aws-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                         sh "ansible-playbook -i ansible/inventory.ini --private-key \$SSH_KEY ansible/setup-app.yml --extra-vars 'build_number=${BUILD_NUMBER}'"
-                        sh "ansible-playbook -i ansible/inventory.ini --private-key \$SSH_KEY ansible/setup-monitoring.yml"
+                        sh "ansible-playbook -i ansible/inventory.ini --private-key \$SSH_KEY ansible/setup-monitoring.yml --extra-vars 'app_server_ip=${env.APP_IP}'"
                     }
                 }
             }
