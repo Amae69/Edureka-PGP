@@ -44,7 +44,7 @@ pipeline {
             steps {
                 sh '''
                     cp target/ABCtechnologies*.war abc_tech.war || cp target/*.war abc_tech.war
-                    docker build -t jsachdev07/abc_tech:${BUILD_NUMBER} .
+                    docker build -t krizeal/abc_tech:${BUILD_NUMBER} .
                 '''
             }
         }
@@ -53,7 +53,7 @@ pipeline {
             steps {
                 sh '''
                     echo $DOCKER_CREDS_PSW | docker login -u $DOCKER_CREDS_USR --password-stdin
-                    docker push jsachdev07/abc_tech:${BUILD_NUMBER}
+                    docker push krizeal/abc_tech:${BUILD_NUMBER}
                 '''
             }
         }
@@ -75,16 +75,45 @@ pipeline {
             }
         }
 
-        stage('Get Public IP') {
+        stage('Get Public IPs') {
             steps {
                 script {
                     def ip = sh(
                         script: "cd terraform && terraform output -raw app_public_ip",
                         returnStdout: true
                     ).trim()
+                    def mon_ip = sh(
+                        script: "cd terraform && terraform output -raw monitoring_public_ip",
+                        returnStdout: true
+                    ).trim()
 
+                    env.APP_IP = ip
+                    env.MON_IP = mon_ip
                     env.APP_URL = "http://${ip}:8080"
+                    
+                    echo "App IP is ${env.APP_IP}"
+                    echo "Monitoring IP is ${env.MON_IP}"
                     echo "App URL is ${env.APP_URL}"
+                }
+            }
+        }
+
+        stage('Ansible Configuration') {
+            steps {
+                script {
+                    // Generate dynamic inventory file
+                    sh """
+                    echo '[app]' > ansible/inventory.ini
+                    echo '${env.APP_IP} ansible_user=ubuntu ansible_ssh_common_args="-o StrictHostKeyChecking=no"' >> ansible/inventory.ini
+                    echo '[monitoring]' >> ansible/inventory.ini
+                    echo '${env.MON_IP} ansible_user=ubuntu ansible_ssh_common_args="-o StrictHostKeyChecking=no"' >> ansible/inventory.ini
+                    """
+
+                    // Run Ansible Playbook for App Setup
+                    withCredentials([sshUserPrivateKey(credentialsId: 'aws-ssh-key', keyFileVariable: 'SSH_KEY')]) {
+                        sh "ansible-playbook -i ansible/inventory.ini --private-key \$SSH_KEY ansible/setup-app.yml --extra-vars 'build_number=${BUILD_NUMBER}'"
+                        sh "ansible-playbook -i ansible/inventory.ini --private-key \$SSH_KEY ansible/setup-monitoring.yml"
+                    }
                 }
             }
         }

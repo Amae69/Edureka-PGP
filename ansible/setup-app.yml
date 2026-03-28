@@ -59,3 +59,10 @@
         state: started
         enabled: yes
         daemon_reload: yes
+
+    - name: Remove existing container if any
+      shell: docker rm -f abc_tech
+      ignore_errors: yes
+
+    - name: Run App Container
+      shell: docker run -d -p 8080:8080 --name abc_tech jsachdev07/abc_tech:{{ build_number | default('latest') }}
