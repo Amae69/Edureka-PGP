@@ -23,11 +23,11 @@ pipeline {
         stage('Dependency Check (SCA)') {
             steps {
                 sh '''
-                mkdir -p reports
-                chmod 777 reports
+                mkdir -p reports-${BUILD_NUMBER}
+                chmod 777 reports-${BUILD_NUMBER}
                 docker run --rm \
                 -v $(pwd):/src \
-                -v $(pwd)/reports:/report \
+                -v $(pwd)/reports-${BUILD_NUMBER}:/report \
                 owasp/dependency-check \
                 --scan /src \
                 --format HTML \
