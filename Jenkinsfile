@@ -26,6 +26,7 @@ pipeline {
                 mkdir -p reports-${BUILD_NUMBER}
                 chmod 777 reports-${BUILD_NUMBER}
                 docker run --rm \
+                -v odc-workspace-data:/usr/share/dependency-check/data \
                 -v $(pwd):/src \
                 -v $(pwd)/reports-${BUILD_NUMBER}:/report \
                 owasp/dependency-check \
@@ -33,12 +34,15 @@ pipeline {
                 --format HTML \
                 --out /report
                 '''
+                archiveArtifacts artifacts: "reports-${BUILD_NUMBER}/*.html", allowEmptyArchive: true
             }
         }
 
         stage('Checkov Scan') {
             steps {
-                sh 'checkov -d terraform/'
+                sh '''
+                docker run --rm -v $(pwd)/terraform:/tf bridgecrew/checkov -d /tf || true
+                '''
             }
         }
 
