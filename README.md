@@ -1,60 +1,148 @@
-# DevOps Capstone Project: Secure, Automated, and Monitored AWS Infrastructure
+# DevOps Capstone Project: Secure, Automated & Monitored AWS Deployment
 
-This repository contains the complete solution for building a modern DevOps pipeline and provisioning a secure, monitored infrastructure on AWS. 
+This repository contains the complete end-to-end solution for automating the build, security scanning, infrastructure provisioning, configuration, and deployment of a Java web application using a fully local Jenkins CI/CD pipeline.
 
-The project uses **Terraform** for Infrastructure as Code (IaC), **Ansible** for configuration management, **Docker** for containerization, and **Jenkins** for a fully automated CI/CD and DevSecOps pipeline. **Prometheus** and **Grafana** are used to collect and visualize real-time resource metrics.
+## Tech Stack
 
-## Features
-- **Infrastructure as Code**: Terraform provisions 3 EC2 instances (Jenkins Server, App Server, and Monitoring Server) securely in AWS.
-- **Configuration Management**: Ansible automates the installation of Jenkins, Docker, Node Exporter, Prometheus, and Grafana across the environments.
-- **DevSecOps Pipeline**: Jenkins fully automates code checkout, Maven build, Docker packaging, and pushing. It integrates **Continuous Security** with:
-  - OWASP Dependency-Check (SCA)
-  - Checkov for Terraform vulnerability scanning
-  - OWASP ZAP for Dynamic Application Security Testing (DAST)
-- **Monitoring & Observability**: Node Exporter streams metrics to Prometheus, which are visualized elegantly using Grafana dashboards.
+| Tool | Purpose |
+|---|---|
+| **Jenkins** (local) | CI/CD Orchestrator — runs the entire pipeline |
+| **Maven** | Builds and packages the Java WAR artifact |
+| **Docker** | Containerizes the application and runs security tools |
+| **Terraform** | Provisions AWS VPC, Subnets, and EC2 instances |
+| **Ansible** | Configures EC2 servers and deploys the application |
+| **Prometheus + Grafana** | Real-time infrastructure monitoring and dashboards |
+| **OWASP Dependency-Check** | Software Composition Analysis (SCA) security scan |
+| **Checkov** | Terraform IaC security scanning |
+| **OWASP ZAP** | Dynamic Application Security Testing (DAST) |
+
+---
+
+## Architecture
+
+```
+[GitHub Push] → [Jenkins (Local)]
+                     │
+        ┌────────────┼────────────────┐
+        ▼            ▼                ▼
+  Maven Build   Security Scans   Docker Build & Push
+  (WAR File)   (SCA/IaC/DAST)   (krizeal/abc_tech)
+                                      │
+                              ┌───────┴────────┐
+                              ▼                ▼
+                       Terraform         AWS Infrastructure
+                       Init/Apply  →  VPC + Subnet + IGW
+                                      App EC2 | Monitoring EC2
+                                            │
+                                       Ansible Config
+                                     Docker Deploy | Prometheus + Grafana
+```
+
+---
+
+## AWS Infrastructure (Terraform)
+
+All resources are provisioned automatically by the pipeline. No manual AWS console work required.
+
+- **VPC**: `10.0.0.0/16`
+- **Public Subnet**: `10.0.1.0/24` with Internet Gateway and Route Table
+- **App Server EC2** (`t3.micro`, Ubuntu 22.04):
+  - Runs the containerized Java application on port `8080`
+  - Runs Node Exporter on port `9100` for metrics collection
+- **Monitoring Server EC2** (`t3.micro`, Ubuntu 22.04):
+  - Runs Prometheus on port `9090`
+  - Runs Grafana on port `3000`
+
+---
+
+## Jenkins Pipeline Stages
+
+1. **Checkout Code** — Clones the repository from GitHub
+2. **Compile, Test & Package** — Runs `mvn clean compile test package`, generating the WAR file and JaCoCo coverage report
+3. **Dependency Check (SCA)** — Runs OWASP Dependency-Check via Docker, scanning all JAR dependencies against the NVD CVE database. Report archived as a Jenkins build artifact.
+4. **Checkov Scan** — Runs Checkov via Docker to scan `terraform/` for IaC security misconfigurations
+5. **Build Docker Image** — Builds the application container tagged `krizeal/abc_tech:<BUILD_NUMBER>`
+6. **Push Docker Image** — Pushes the versioned image to Docker Hub
+7. **Terraform Init & Apply** — Provisions the full AWS network and EC2 infrastructure
+8. **Get Public IPs** — Extracts the live App and Monitoring server IPs from Terraform outputs
+9. **Ansible Configuration** — Generates a dynamic inventory and runs playbooks to:
+   - Deploy and start the Docker container on the App Server
+   - Install and configure Prometheus + Grafana on the Monitoring Server
+10. **OWASP ZAP (DAST)** — Runs a dynamic security baseline scan against the live deployed application URL. Report archived as a Jenkins build artifact.
+
+---
 
 ## Repository Structure
-- `src/` & `pom.xml`: Java web application source code.
-- `Dockerfile`: Multi-stage build manifest for packaging the Java app using Tomcat.
-- `terraform/`: Contains `main.tf`, `variables.tf`, and `outputs.tf` for deploying the AWS infrastructure.
-- `ansible/`: Contains playbooks (`setup-jenkins.yml`, `setup-app.yml`, `setup-monitoring.yml`) and `inventory.ini` to configure the servers.
-- `Jenkinsfile`: The declarative pipeline script for Jenkins automation.
-- `Guide.md`: Detailed, step-by-step setup instructions.
+
+```
+.
+├── src/                        # Java web application source code
+├── pom.xml                     # Maven project configuration
+├── Dockerfile                  # Container build manifest (Tomcat base)
+├── Jenkinsfile                 # Declarative Jenkins pipeline definition
+├── terraform/
+│   ├── main.tf                 # AWS VPC, Subnet, IGW, SGs, EC2 instances
+│   ├── variables.tf            # Configurable pipeline variables
+│   └── outputs.tf              # Exports App and Monitoring public IPs
+└── ansible/
+    ├── inventory.ini           # Dynamic inventory (generated by Jenkins)
+    ├── setup-app.yml           # Installs Docker, Node Exporter, runs app container
+    └── setup-monitoring.yml    # Installs Prometheus and Grafana
+```
+
+---
 
 ## Prerequisites
-- An AWS Account with an IAM Access Key and Secret Key.
-- SSH Key Pair created in my AWS region (default `ec2-key`) saved to my local machine.
-- Terraform and Ansible installed on my local control machine.
-- A free DockerHub account.
 
-## Quick Start Guide
+- **AWS Account** with IAM Access Key and Secret Key
+- **EC2 Key Pair** created in your AWS region (default: `ec2-key`) with the `.pem` file saved locally
+- **Local Jenkins** with the following credentials configured:
+  - `aws-creds` — AWS Access Key (Amazon Web Services Credentials type)
+  - `dockerhub` — Docker Hub username & password
+  - `aws-ssh-key` — SSH Username with Private Key (using your `.pem` file, username: `ubuntu`)
+- **Local Tools** on the Jenkins host machine: `terraform`, `ansible`, `docker`, `mvn`
 
-For full details, reference the comprehensive [Guide.md](./Guide.md) file included in this repository.
+---
 
-### 1. Provision Infrastructure
-Deploy the three servers to AWS:
-```bash
-cd terraform
-terraform init
-terraform apply -auto-approve
-```
-Take note of the 3 Public IPs output by Terraform.
+## How to Run
 
-### 2. Configure Servers
-Update the `ansible/inventory.ini` placeholder IPs with your Terraform outputs, then execute:
-```bash
-ansible-playbook -i ansible/inventory.ini ansible/setup-jenkins.yml
-ansible-playbook -i ansible/inventory.ini ansible/setup-app.yml
-ansible-playbook -i ansible/inventory.ini ansible/setup-monitoring.yml
-```
+The pipeline is fully automated. To trigger a deployment:
 
-### 3. Setup Jenkins & Run Pipeline
-1. SSH into the Jenkins Server and grab the initial admin password from `/var/lib/jenkins/secrets/initialAdminPassword`.
-2. Login at `http://<JENKINS_IP>:8080`, install the **Docker Pipeline** and **AWS Credentials** plugins.
-3. Configure your AWS (`aws-creds`) and DockerHub (`dockerhub`) credentials in Jenkins globally.
-4. Create a new Pipeline job pointing to this repository and let the `Jenkinsfile` deploy your application automatically!
+1. Push a commit to the `main` branch of this repository
+2. Jenkins (configured with Poll SCM) will automatically detect the change and start a new build
+3. Jenkins will provision the infrastructure, deploy the application, and run all security scans end-to-end
 
-### 4. Monitor Health
-1. Access Grafana at `http://<MONITORING_IP>:3000` (default login: `admin`/`admin`).
-2. Add a `Prometheus` data source pointing to `http://localhost:9090`.
-3. Import the Node Exporter Full dashboard (ID: `1860`) to view live CPU, Memory, Network, and Disk telemetry!
+---
+
+## Accessing the Application
+
+After a successful pipeline run, Jenkins will print the live IPs in the build log:
+
+| Service | URL |
+|---|---|
+| Java Application | `http://<APP_IP>:8080/abc_tech/` |
+| Prometheus | `http://<MONITORING_IP>:9090` |
+| Grafana | `http://<MONITORING_IP>:3000` (login: `admin`/`admin`) |
+
+---
+
+## Monitoring Setup (Grafana)
+
+1. Log into Grafana at `http://<MONITORING_IP>:3000`
+2. Go to **Connections → Data Sources → Add new data source**
+3. Select **Prometheus** and set the URL to `http://localhost:9090`
+4. Click **Save & Test**
+5. Go to **Dashboards → Import** and enter Dashboard ID **`1860`** (Node Exporter Full)
+6. Select your Prometheus data source and click **Import** to view live CPU, Memory, Network, and Disk telemetry!
+
+---
+
+## Security Reports
+
+The following security reports are generated and archived automatically on every Jenkins build:
+
+- **Dependency Check (SCA) report:** Available in the Jenkins build under **Build Artifacts → reports-`<BUILD_NUMBER>`/dependency-check-report.html**: [dependency-check-report.html](http://localhost:8080/job/Edureka-PGP-Capstone-Pipeline/15/artifact/reports-15/dependency-check-report.html)
+
+- **OWASP ZAP (DAST) report:** Available in the Jenkins build under **Build Artifacts → zap-report/zap-report.html**: [zap-report.html](http://localhost:8080/job/Edureka-PGP-Capstone-Pipeline/15/artifact/zap-report/zap-report.html)
+
+
