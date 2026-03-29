@@ -20,23 +20,7 @@ This repository contains the complete end-to-end solution for automating the bui
 
 ## Architecture
 
-```
-[GitHub Push] → [Jenkins (Local)]
-                     │
-        ┌────────────┼────────────────┐
-        ▼            ▼                ▼
-  Maven Build   Security Scans   Docker Build & Push
-  (WAR File)   (SCA/IaC/DAST)   (krizeal/abc_tech)
-                                      │
-                              ┌───────┴────────┐
-                              ▼                ▼
-                       Terraform         AWS Infrastructure
-                       Init/Apply  →  VPC + Subnet + IGW
-                                      App EC2 | Monitoring EC2
-                                            │
-                                       Ansible Config
-                                     Docker Deploy | Prometheus + Grafana
-```
+![Architectural Diagram](./images/Architectural%20diag.jpg)
 
 ---
 
@@ -58,17 +42,26 @@ All resources are provisioned automatically by the pipeline. No manual AWS conso
 ## Jenkins Pipeline Stages
 
 1. **Checkout Code** — Clones the repository from GitHub
+
 2. **Compile, Test & Package** — Runs `mvn clean compile test package`, generating the WAR file and JaCoCo coverage report
-3. **Dependency Check (SCA)** — Runs OWASP Dependency-Check via Docker, scanning all JAR dependencies against the NVD CVE database. Report archived as a Jenkins build artifact.
+
+3. **Dependency Check (SCA)** — Runs OWASP Dependency-Check via Docker, scanning all JAR dependencies against the NVD CVE database. Report archived as a Jenkins build artifact. [[dependency-check-report.html](http://localhost:8080/job/Edureka-PGP-Capstone-Pipeline/15/artifact/reports-15/dependency-check-report.html)]
+
 4. **Checkov Scan** — Runs Checkov via Docker to scan `terraform/` for IaC security misconfigurations
+
 5. **Build Docker Image** — Builds the application container tagged `krizeal/abc_tech:<BUILD_NUMBER>`
+
 6. **Push Docker Image** — Pushes the versioned image to Docker Hub
+
 7. **Terraform Init & Apply** — Provisions the full AWS network and EC2 infrastructure
+
 8. **Get Public IPs** — Extracts the live App and Monitoring server IPs from Terraform outputs
+
 9. **Ansible Configuration** — Generates a dynamic inventory and runs playbooks to:
    - Deploy and start the Docker container on the App Server
    - Install and configure Prometheus + Grafana on the Monitoring Server
-10. **OWASP ZAP (DAST)** — Runs a dynamic security baseline scan against the live deployed application URL. Report archived as a Jenkins build artifact.
+
+10. **OWASP ZAP (DAST)** — Runs a dynamic security baseline scan against the live deployed application URL. Report archived as a Jenkins build artifact. [[zap-report.html](http://localhost:8080/job/Edureka-PGP-Capstone-Pipeline/15/artifact/zap-report/zap-report.html)]
 
 ---
 
@@ -134,6 +127,8 @@ After a successful pipeline run, Jenkins will print the live IPs in the build lo
 4. Click **Save & Test**
 5. Go to **Dashboards → Import** and enter Dashboard ID **`1860`** (Node Exporter Full)
 6. Select your Prometheus data source and click **Import** to view live CPU, Memory, Network, and Disk telemetry!
+
+![Monitoring Dashboard](./images/grafana%20dashboard.jpg)
 
 ---
 
